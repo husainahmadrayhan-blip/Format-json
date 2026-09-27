@@ -35,7 +35,8 @@ TOKEN = re.compile(r'[\u0980-\u09ff]+|[A-Za-z]+|[০-৯0-9]+|[^\u0980-\u09ffA-Z
 
 def _word(word):
     output = []
-    chars = list(word)
+    # Bengali য় is often encoded as য + nukta; handle both the same way.
+    chars = list(word.replace('\u09af\u09bc','য়').replace('\u09a1\u09bc','ড়').replace('\u09a2\u09bc','ঢ়'))
     for index, char in enumerate(chars):
         following = chars[index + 1] if index + 1 < len(chars) else ''
         if char in CONSONANTS:

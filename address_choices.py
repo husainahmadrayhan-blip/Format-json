@@ -52,10 +52,32 @@ def district_on_line(line):
 
 DEFAULT_LOCALITY = {'postOfficeBn':'চন্দ্র নগর','postOfficeEn':'Chondon Nogor','villageBn':'সাতকাপন','villageEn':'Satkapon'}
 
+LOCALITY_LABELS = {
+    'postOffice': re.compile(r'^(?:ডাক\s*(?:ঘর|গর|গোর)|ডাগ\s*ঘর|পোস্ট\s*(?:অফিস|অফিস্)|পোঃ?|post\s*office|post\s*off(?:ice)?|p\.?\s*o\.?)\s*(?:\(?\s*(?:বাংলা(?:য়|য়)?|ইংরেজি|bangla|english)\s*\)?)?\s*[:：ঃ=\-–—]\s*',re.I),
+    'village': re.compile(r'^(?:গ্রাম\s*/\s*(?:মহল্লা|পাড়া)|গ্রাম|গেরাম|মহল্লা|village|vill\.?)\s*(?:\(?\s*(?:বাংলা(?:য়|য়)?|ইংরেজি|bangla|english)\s*\)?)?\s*[:：ঃ=\-–—]\s*',re.I),
+}
+
+def clean_locality_field(stem,value):
+    """Remove only clear field labels, never unlabelled place-name words."""
+    result=str(value or '').strip()
+    for _ in range(3):
+        newer=LOCALITY_LABELS[stem].sub('',result).strip()
+        if newer==result:break
+        result=newer
+    return result
+
 def complete_locality_languages(address,sources):
     """Preserve written spellings; keep Latin and Bengali in their own fields."""
     for stem in ('postOffice','village'):
         bn,en=stem+'Bn',stem+'En'
+        for key in (bn,en):
+            if address.get(key):
+                cleaned=clean_locality_field(stem,address[key])
+                if cleaned:address[key]=cleaned
+                else:address.pop(key,None);sources.pop(key,None)
+        if sources.get(en,{}).get('source')=='transliteration' and address.get(bn):
+            # Rebuild translated text after stripping a Bengali field label.
+            address[en]=romanize_locality(address[bn])
         bn_value=str(address.get(bn) or '')
         en_value=str(address.get(en) or '')
         if re.search(r'[A-Za-z]',bn_value) and not re.search(r'[\u0980-\u09ff]',bn_value):
@@ -78,6 +100,9 @@ def complete_locality_languages(address,sources):
             spelling=bengalize_locality(address[en])
             if spelling:
                 address[bn]=spelling;sources[bn]={'source':'transliteration','from':en}
+        if address.get(en):
+            english=unicodedata.normalize('NFKD',str(address[en])).replace('–','-').replace('—','-')
+            address[en]=english.encode('ascii','ignore').decode('ascii').strip()
 
 def address_role(text):
     first=text.splitlines()[0] if text else ''
@@ -216,6 +241,16 @@ def candidates(raw):
         segment=lines[start:next_index]
         fragments=locality_fragments(segment,district)
         inputs=explicit_values(fragments)
+        # In an unlabeled bilingual address, the first comma-separated value
+        # before a verified union/upazila/district is the written locality.
+        # Keep each language's original spelling instead of using defaults.
+        for source_line in segment:
+            chunks=[normalize_fragment(x) for x in re.split(r'[,，،]',source_line) if x.strip()]
+            if len(chunks)<3 or not chunks[0] or re.search(r'\d|[:ঃ]|\b(?:village|post|district|upazila)\b',chunks[0],re.I):continue
+            if not any(same(x,district) for x in chunks[1:]):continue
+            first=chunks[0].strip(' .।')
+            if re.fullmatch(r'[\u0980-\u09ff\s]+',first):inputs.setdefault('villageBn',first)
+            elif re.fullmatch(r'[A-Za-z\s]+',first):inputs.setdefault('villageEn',first)
         ordered_locality(segment,inputs)
         for line in segment:
             normalized=normalize_fragment(line)
@@ -248,7 +283,10 @@ def candidates(raw):
             elif re.match(r'^\s*(?:গ্রাম|মহল্লা)\s*[:：ঃ=\-]?\s*.+',line):
                 inputs.setdefault('villageEn',next_line)
         if not inputs.get('postCode'):
-            codes={m.translate(DIGITS) for line in segment for m in re.findall(r'(?<![০-৯0-9])[০-৯0-9]{4}(?![০-৯0-9])',line)}
+            # Only postal evidence may supply a post code. An earlier bare
+            # applicant DOB belongs to the person, never to this address.
+            postal_lines=[line for line in segment if re.search(r'ডাক\s*ঘর|পোস্ট\s*কোড|post\s*office|post\s*code|\bP\.?O\.?\b',line,re.I)]
+            codes={m.translate(DIGITS) for line in postal_lines for m in re.findall(r'(?<![০-৯0-9])[০-৯0-9]{4}(?![০-৯0-9])',line)}
             if len(codes)==1:inputs['postCode']=next(iter(codes))
         inputs['district']=district['nameBn']
         if not inputs.get('upazila'):

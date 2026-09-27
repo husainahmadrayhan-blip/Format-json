@@ -1,7 +1,7 @@
 {
   "name": "offline-bdris-react-parser",
   "private": true,
-  "version": "51.0.0",
+  "version": "58.0.0",
   "type": "module",
   "scripts": {
     "start": "node start.mjs",

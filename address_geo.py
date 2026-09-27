@@ -15,9 +15,9 @@ FIELD_LABELS = {
     'upazila': r'উপজেলা|থানা|upazila|thana',
     'union': r'ইউনিয়ন|ইউনিয়ন|পৌরসভা|union|pourashava',
     'ward': r'ওয়ার্ড(?:\s*নং)?|ওয়ার্ড(?:\s*নং)?|ward(?:\s*no)?',
-    'postOfficeBn': r'পোস্ট\s*অফিস|ডাকঘর|ডাক\s*ঘর|পোঃ?',
+    'postOfficeBn': r'পোস্ট\s*অফিস|ডাক\s*(?:ঘর|গর|গোর)|ডাগ\s*ঘর|পোঃ?',
     'postOfficeEn': r'post\s*office|post\s*off(?:ice)?|\bp\.?o\.?\b',
-    'villageBn': r'গ্রাম|মহল্লা', 'villageEn': r'village|\bvill\b',
+    'villageBn': r'গ্রাম|গেরাম|মহল্লা', 'villageEn': r'village|\bvill\b',
     'postCode': r'পোস্ট\s*কোড|ডাক\s*কোড|post\s*code|postal\s*code',
 }
 LABEL = re.compile(r'^\s*('+'|'.join('(?:'+p+')' for p in FIELD_LABELS.values())+r')\s*[:：ঃ=\-–—]?\s*(.*?)\s*$', re.I)

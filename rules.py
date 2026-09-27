@@ -14,7 +14,7 @@ ADDRESS_MARK = re.compile(r'ঠিকানা|জন্ম\s*স্থান|�
 META_MARK = re.compile(r'NID|BRN|আইডি|কার্ড|নম্বর|নাম্বার|mobile|মোবাইল|জাতীয়তা|জাতীয়তা|nationality|সন্তান|gender|লিঙ্গ|date|জন্ম\s*তারিখ',re.I)
 NAME_LABEL = re.compile(r'\bname\b|নাম|ইংরেজি|ইংরেজী|ইংরেজ|বাংলা|বাংলায়|বাংলায়|english',re.I)
 FATHER = re.compile(r'পিতা|বাবা|father',re.I)
-MOTHER = re.compile(r'মাতা|মায়ের|মায়ের|mother',re.I)
+MOTHER = re.compile(r'মাতা|মায়ের|মায়ের|(?<![\u0980-\u09ff])মা(?![\u0980-\u09ff])|mother',re.I)
 SEPARATORS = re.compile(r'^\s*[:：ঃ=\-–—.\s]+')
 
 
@@ -41,7 +41,7 @@ def label_value(line):
     compact=re.match(r'^(নাম\s*\((?:বাংলায়|বাংলায়|বাংলা|ইংরেজি|ইংরেজী|English|Bangla)\))\s*[:：ঃ=-]?\s*(.+)$',line,re.I)
     if compact:return clean(compact.group(1)),clean(compact.group(2))
     # Explicit short parent labels, including 'Father:-', 'পিতা:' and 'মাতা-'.
-    parent=re.match(r"^((?:পিতার|মাতার|বাবার)(?:\s*নাম)?|(?:পিতা|মাতা|বাবা|father|mother)(?:s)?)\s*[:：ঃ,=\-–—]+\s*(.*)$",line,re.I)
+    parent=re.match(r"^((?:পিতার|মাতার|বাবার)(?:\s*নাম)?|(?:পিতা|মাতা|বাবা|মা|father|mother)(?:s)?)\s*[:：ঃ,=\-–—]+\s*(.*)$",line,re.I)
     if parent:return clean(parent.group(1)),clean(parent.group(2))
     # Split at label punctuation, including decorated '--:' labels.
     match = re.match(r'^(.{1,85}?)(?:\s*[:：ঃ=,]+|\s*[-–—]+\s*[:：ঃ=]*)(.*)$', line)
@@ -57,7 +57,7 @@ def label_value(line):
 
 
 def is_name_label(label):
-    if not NAME_LABEL.search(label) and not re.fullmatch(r'(?:পিতার|মাতার|বাবার|পিতা|মাতা|বাবা|father|mother)s?',label,re.I):return False
+    if not NAME_LABEL.search(label) and not re.fullmatch(r'(?:পিতার|মাতার|বাবার|পিতা|মাতা|বাবা|মা|father|mother)s?',label,re.I):return False
     if re.search(r'চেঞ্জ|সংশোধন|পরিবর্তন|change|correct',label,re.I):return False
     if ADDRESS_MARK.search(label) or META_MARK.search(label) or re.search(r'পিতার\s*জন্ম|মাতার\s*জন্ম',label,re.I):return False
     return True
@@ -101,6 +101,7 @@ def sequential_names(lines):
 
 
 def extract(raw):
+    raw=re.sub(r'[\u200b\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]','',raw)
     names={r:{'bn':'','en':''} for r in ('person','father','mother')}
     evidence={r:{'bn':False,'en':False} for r in names}
     dates=[];genders=[]
@@ -109,6 +110,9 @@ def extract(raw):
         line=source.strip()
         if not line:continue
         line=re.sub(r'^[★♦💠●▪•*\s]+','',line).strip()
+        # A bare parent heading is a section boundary, not an unlabeled name.
+        if re.fullmatch(r'(?:পিতা|বাবা|father)',line,re.I):role='father';continue
+        if re.fullmatch(r'(?:মাতা|মা|mother)',line,re.I):role='mother';continue
         # A heading changes the role until another section starts.
         if re.search(r'পিতার\s*তথ্য|father(?:[\x27’]s)?\s*information',line,re.I):role='father';continue
         if re.search(r'মাতার\s*তথ্য|mother(?:[\x27’]s)?\s*information',line,re.I):role='mother';continue
@@ -136,6 +140,17 @@ def extract(raw):
                 nextline=clean(lines[i+1]); nbn,nen=split_bilingual(nextline)
                 if nen and not nbn and not label_value(nextline)[0] and not ADDRESS_MARK.search(nextline) and not META_MARK.search(nextline):
                     names[active]['en']=nen;evidence[active]['en']=True
+        elif (not label and not DATE_RE.search(line) and not META_MARK.search(line)
+              and not ADDRESS_MARK.search(line) and not geo_name_line(line)
+              and not re.search(r'\d|https?://|@|[,،।]',line)
+              and len(line)<=90 and (role!='person' or i<5)):
+            # A bilingual name may be written on two plain lines. Only assign
+            # it within its explicit parent section or at the start of text.
+            bn,en=split_bilingual(line)
+            if bn and not en and len(bn.split())<=6 and not names[role]['bn']:
+                names[role]['bn']=bn;evidence[role]['bn']=True
+            if en and not bn and len(en.split())<=6 and not names[role]['en']:
+                names[role]['en']=en;evidence[role]['en']=True
         elif not label and role in names and not META_MARK.search(line) and not ADDRESS_MARK.search(line):
             # Unlabeled English line is accepted only directly after a labeled name.
             if i and is_name_label(label_value(lines[i-1].strip())[0]):
@@ -152,7 +167,9 @@ def extract(raw):
                 is_name_label(label_value(lines[j].strip())[0]) and
                 not PARENT_MARK.search(lines[j])
                 for j in range(max(0,i-3),i))
-        if (re.search(r'জন্ম\s*তারিখ|(?:^|\s)জন্ম\s*[:ঃ]|date\s*of\s*birth|\bdob\b|\bbirth\s*[:ঃ]',line,re.I)
+        if standalone_date and role=='person' and i<8 and (names['person']['bn'] or names['person']['en']):
+            applicant_name_nearby=True
+        if (re.search(r'জন্ম\s*তারিখ|(?:^|\s)জন্ম\s*[:ঃ]|date\s*of\s*birth|\bdob\b|\bbirth\s*[:ঃ]|^(?:বয়স|বয়স|age)\s*[:ঃ：-]\s*[০-৯0-9]{1,2}\s*[-/.]',line,re.I)
                 or (standalone_date and role=='person' and applicant_name_nearby)):
             if active=='person' and not FATHER.search(line) and not MOTHER.search(line):
                 date_line=line

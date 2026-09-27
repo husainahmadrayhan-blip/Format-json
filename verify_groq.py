@@ -28,7 +28,7 @@ assert not supported('মাতার নাম: সালমা\nNID: 123\nফ�
 name_raw='নাম: SADIA\nপিতার :ঃ মো: শরিফুল\nEnglish: MD SHORIFUL\nমাতার নাম: মোছা: শারমিন খাতুন'
 name_rules,_=local_extract(name_raw)
 name_data,_=validate(name_raw,name_rules)
-assert name_data['father']['nameBn']=='মোহাঃ শরিফুল',name_data['father']
+assert name_data['father']['nameBn']=='মোঃ শরিফুল',name_data['father']
 assert name_data['father']['nameEn']=='MD SHORIFUL'
 assert name_data['mother']['nameBn']=='মোছাঃ শারমিন খাতুন'
 assert 'র :ঃ' not in name_data['father']['nameBn']
