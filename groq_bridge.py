@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from rules import sequential_names
 
 ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions'
 MODEL = 'openai/gpt-oss-20b'
@@ -73,6 +74,14 @@ def supported(raw,path,value,source):
         other='mother' if role=='father' else 'father'
         if NAME_LABEL[other].search(line):return False
         in_section=last_parent>=0 and last_parent>last_applicant and bool(NAME_LABEL[role].search(lines[last_parent]))
+        if not PARENT.search(raw):
+            # Unlabelled three-person lists are safe only when all three
+            # bilingual name pairs occur in a single unambiguous order.
+            groups,_=sequential_names(raw.splitlines())
+            position=1 if role=='father' else 2
+            language='bn' if field=='nameBn' else 'en'
+            if len(groups)==3 and groups[position][language]==value:
+                return True
         return bool(NAME_LABEL[role].search(line) or (index and NAME_LABEL[role].search(lines[index-1]))
                     or in_section and re.search(r'নাম|name|english|ইংরেজি|বাংলা',line,re.I))
     if role in ('father','mother') and field in ('brn','birthDate'):
@@ -104,7 +113,9 @@ def supported(raw,path,value,source):
         found={day(m.group()) for m in DATE.finditer(source)}
         if not expected or found!={expected}:return False
         return bool(re.search(r'জন্ম(?:ের)?\s*তারিখ|date\s*of\s*birth|\bdob\b',line,re.I) or
-                    (index<=3 and index>0 and NAME_LABEL['person'].search(lines[index-1])))
+                    (index<=3 and index>0 and NAME_LABEL['person'].search(lines[index-1])) or
+                    (index<=3 and index>=2 and len(sequential_names(raw.splitlines())[0])==3
+                     and sequential_names(raw.splitlines())[1]==expected))
     if field=='gender':
         gender=value.upper()
         if gender not in ('MALE','FEMALE'):return False

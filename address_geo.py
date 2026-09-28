@@ -31,6 +31,8 @@ def norm(value):
     text=text.replace('কপোরেশন','কর্পোরেশন').replace('করপোরেশন','কর্পোরেশন')
     return re.sub(r'[^\w\u0980-\u09ff]+', '', text)
 
+GEO_NAMES = {norm(name) for name in GEO_NAMES}
+
 def geo_name_line(value):
     return norm(value) in GEO_NAMES
 

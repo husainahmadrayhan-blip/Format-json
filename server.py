@@ -116,7 +116,7 @@ def explicit_fallback(raw, result, warnings):
                     result[role]['nameEn']=nxt
     return result, warnings
 
-def validate(raw, extracted):
+def validate(raw, extracted, use_rule_fallback=True):
     result, warnings = blank(), []
     for role in FIELDS:
         fields = extracted.get(role) if isinstance(extracted, dict) else None
@@ -155,7 +155,8 @@ def validate(raw, extracted):
         explicit = bool(re.search(r'(?:লিঙ্গ|gender|পুরুষ|মহিলা|নারী|ছেলে|মেয়ে|মেয়ে|male|female)', raw, re.I))
         if explicit: result['person']['gender'] = gender
         else: warnings.append('লিঙ্গ স্পষ্টভাবে লেখা নেই')
-    result,warnings = explicit_fallback(raw, result, warnings)
+    if use_rule_fallback:
+        result,warnings = explicit_fallback(raw, result, warnings)
     for field in ('firstNameBn','lastNameBn'):
         result['person'][field]=normalize_bn_name(result['person'][field])
     for role in ('father','mother'):
@@ -395,6 +396,38 @@ class Handler(BaseHTTPRequestHandler):
             # WhatsApp exports may prefix individual lines with invisible
             # direction marks. Remove controls before every parser stage.
             raw = re.sub(r'[\u200b\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]', '', raw)
+            if provider in ('groq','gemini') or model:
+                label = ('Gemini' if provider=='gemini' else 'Groq' if provider=='groq' else 'Ollama')
+                key=body.get('apiKey') or os.environ.get('GEMINI_API_KEY' if provider=='gemini' else 'GROQ_API_KEY','')
+                if provider and (not isinstance(key,str) or not key.strip()):
+                    return self.respond(400,{'error':label+' API key লিখুন অথবা Environment-এ সেট করুন'})
+                paths=list(GROQ_FIELDS)
+                try:
+                    if provider:
+                        accepted,rejected=(gemini_extract if provider=='gemini' else groq_extract)(raw,paths,key.strip())
+                    else:
+                        allowed=[m['name'] for m in ollama('/api/tags').get('models',[])]
+                        if model not in allowed:raise ValueError('নির্বাচিত Ollama মডেল ইনস্টল করা নেই')
+                        answer=ollama('/api/chat',{'model':model,'stream':False,'format':'json','options':{'temperature':0},
+                            'messages':[{'role':'system','content':ollama_prompt(raw,paths,{})},{'role':'user','content':raw}]},timeout=300)
+                        accepted,rejected=ollama_accepted(raw,paths,json.loads(answer.get('message',{}).get('content','')))
+                except (ValueError,TypeError,KeyError,URLError,HTTPError,TimeoutError) as error:
+                    return self.respond(502,{'error':label+' থেকে JSON তৈরি হয়নি: '+str(error)})
+                proposal={role:{} for role in FIELDS}
+                for field,value in accepted.items():
+                    role,name=field.split('.',1)
+                    proposal[role][name]=value
+                data,warnings=validate(raw,proposal,use_rule_fallback=False)
+                for field in rejected:warnings.append(field+' মূল লেখার সঙ্গে নিরাপদে মেলেনি; খালি রাখা হয়েছে')
+                if eligible_parent_year(raw,data['person']['birthDate']):
+                    for role in ('father','mother'):
+                        number=accepted.get(role+'.brn','').translate(BN_TO_ASCII)
+                        date=groq_day(accepted.get(role+'.birthDate',''))
+                        if re.fullmatch(r'[0-9]{17}',number):data[role]['brn']=number
+                        if date:data[role]['birthDate']=date
+                result=parse_result(raw,data,warnings,provider or 'ollama',[])
+                result['providerStatus']=label+'-কে সরাসরি অনুরোধ পাঠানো হয়েছে; '+str(len(accepted))+'টি ঘর মূল লেখার সঙ্গে মিলেছে'
+                return self.respond(200,result)
             # Always run Python rules first; Ollama availability never gates them.
             rules, missing = rules_extract(raw)
             base, warnings = validate(raw, rules)
@@ -412,7 +445,10 @@ class Handler(BaseHTTPRequestHandler):
                             if not base[role].get(field):missing=list(dict.fromkeys([*missing,role+'.'+field]))
             if not missing:
                 result=parse_result(raw,base,warnings,'rules',[])
-                if provider:result['providerStatus']='AI কল করা হয়নি: নিয়মেই প্রয়োজনীয় তথ্য পাওয়া গেছে'
+                if provider:
+                    result['providerStatus']=('AI কল করা হয়নি: মূল লেখায় নেই এমন তথ্য অনুমান করে পূরণ করা হবে না'
+                        if not base['person'].get('gender') or any(not base[role].get('nameBn') or not base[role].get('nameEn') for role in ('father','mother'))
+                        else 'AI কল করা হয়নি: নিয়মেই প্রয়োজনীয় তথ্য পাওয়া গেছে')
                 return self.respond(200,result)
             if provider in ('groq','gemini'):
                 label='Gemini' if provider=='gemini' else 'Groq'
