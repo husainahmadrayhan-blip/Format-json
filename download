@@ -1,0 +1,9 @@
+node_modules
+dist
+__pycache__
+*.pyc
+*.zip
+.git
+.env
+*.sqlite3
+users.db
