@@ -17,6 +17,7 @@ NAME_LABEL = re.compile(r'\bname\b|নাম|ইংরেজি|ইংরেজ�
 FATHER = re.compile(r'পিতা|বাবা|father',re.I)
 MOTHER = re.compile(r'মাতা|মায়ের|মায়ের|(?<![\u0980-\u09ff])মা(?![\u0980-\u09ff])|mother',re.I)
 SEPARATORS = re.compile(r'^\s*[:：ঃ=\-–—.\s]+')
+DECORATION = re.compile(r'^[^\w\u0980-\u09ff]+', re.UNICODE)
 
 
 def clean(value):
@@ -35,7 +36,7 @@ def split_bilingual(value):
 
 
 def label_value(line):
-    line = re.sub(r'^[★♦💠●▪•*\s]+', '', line).strip()
+    line = DECORATION.sub('', line).strip()
     line = re.sub(r'^(?:(?:value|val|ভ্যালু|ভেলু)(?:\s*[:ঃ：=\-]\s*|\s+))+(?=\S)', '', line, flags=re.I)
     bare_with_value = re.match(r'^((?:(?:পিতার|মাতার|বাবার)\s*)?নাম\s*(?:বাংলা|বাংলায়|বাংলায়|ইংরেজি|ইংরেজী|english|bangla))\s+(.+)$',line,re.I)
     if bare_with_value:return clean(bare_with_value.group(1)),clean(bare_with_value.group(2))
@@ -68,6 +69,46 @@ def language_hint(label):
     if re.search(r'বাংলা|বাংলায়|বাংলায়',label,re.I):return 'bn'
     if re.search(r'ইংরেজ|english|\bname\b',label,re.I):return 'en'
     return ''
+
+
+def strong_name_fields(raw):
+    """Extract explicitly labelled names within person, father and mother blocks.
+
+    The testimonial generator accepts decorated labels, split first/last names,
+    and an English continuation after other parent fields. Keep each role's
+    boundaries here so a parent's DOB or name cannot become the child's.
+    """
+    values={role:{lang:'' for lang in ('bn','en')} for role in ('person','father','mother')}
+    parts={role:{lang:{} for lang in ('bn','en')} for role in values}
+    role='person'
+    lines=[DECORATION.sub('', clean(line)).strip() for line in raw.splitlines()]
+    lines=[line for line in lines if line]
+    for i,line in enumerate(lines):
+        if re.match(r'^(?:পিতার\s*তথ্য|পিতা(?:র)?\s*নাম|পিতা\s*[:ঃ\-]|বাবার\s*নাম|father(?:[\x27’]s)?\s*(?:information|name))',line,re.I):role='father'
+        elif re.match(r'^(?:মাতার\s*তথ্য|মাতা(?:র)?\s*নাম|মাতা\s*[:ঃ\-]|মায়ের\s*নাম|মায়ের\s*নাম|mother(?:[\x27’]s)?\s*(?:information|name))',line,re.I):role='mother'
+        elif re.match(r'^(?:নতুন\s*নিবন্ধনের\s*তথ্য|ব্যক্তিগত\s*তথ্য|নিজের\s*তথ্য|applicant)',line,re.I):role='person'
+        label,payload=label_value(line)
+        if not label or not is_name_label(label):continue
+        target='father' if FATHER.search(label) else 'mother' if MOTHER.search(label) else role
+        language=language_hint(label)
+        if not language:
+            language='bn' if BENGALI.search(payload) else 'en' if ENGLISH.search(payload) else ''
+        if not payload:
+            for nextline in lines[i+1:i+4]:
+                if label_value(nextline)[0] or ADDRESS_MARK.search(nextline) or META_MARK.search(nextline):break
+                if (language=='bn' and BENGALI.search(nextline)) or (language=='en' and ENGLISH.search(nextline)):
+                    payload=nextline;break
+        bn,en=split_bilingual(payload)
+        candidate=bn if language=='bn' else en
+        if not candidate:continue
+        part='first' if re.search(r'প্রথম\s*অংশ|first\s*name',label,re.I) else 'last' if re.search(r'শেষ\s*অংশ|last\s*name',label,re.I) else ''
+        if part:parts[target][language][part]=candidate
+        elif not values[target][language]:values[target][language]=candidate
+    for target in values:
+        for language in ('bn','en'):
+            part=parts[target][language]
+            if part:values[target][language]=clean(' '.join(part[k] for k in ('first','last') if part.get(k)))
+    return values
 
 def sequential_names(lines):
     """Read strictly ordered, unlabeled person/father/mother value groups."""
@@ -108,7 +149,7 @@ def extract(raw):
     for i,source in enumerate(lines):
         line=source.strip()
         if not line:continue
-        line=re.sub(r'^[★♦💠●▪•*\s]+','',line).strip()
+        line=DECORATION.sub('',line).strip()
         # A bare parent heading is a section boundary, not an unlabeled name.
         if re.fullmatch(r'(?:পিতা|বাবা|father)',line,re.I):role='father';continue
         if re.fullmatch(r'(?:মাতা|মা|mother)',line,re.I):role='mother';continue
@@ -214,6 +255,10 @@ def extract(raw):
                 for lang in ('bn','en'):
                     if group[lang]:names[role][lang]=group[lang]
         if person_date and not dates:dates.append(person_date)
+    explicit=strong_name_fields(raw)
+    for target in names:
+        for lang in ('bn','en'):
+            if explicit[target][lang]:names[target][lang]=explicit[target][lang]
     result={'person':{'nameBn':names['person']['bn'],'nameEn':names['person']['en'],'birthDate':dates[0] if len(set(dates))==1 else '', 'gender':genders[0] if len(set(genders))==1 else ''},
             'father':{'nameBn':names['father']['bn'],'nameEn':names['father']['en']},'mother':{'nameBn':names['mother']['bn'],'nameEn':names['mother']['en']}}
     # The model should run when there are signals of names we failed to assign.

@@ -1,1 +1,1 @@
-GitHub repository-এর মূল জায়গায় এই ZIP-এর ফাইলগুলো আপলোড করুন। src ফোল্ডার লাগবে না। main.jsx, style.css, office-logic.js, office-presets.json এবং source-groups.js মূল জায়গায় থাকবে। Commit-এর পর Render নতুন commit deploy করুন। /api/health-এ v59-parent-date-render-20260930 দেখুন।
+v60 testimonial parser। ZIP খুলে সব ফাইল GitHub repository-র মূল জায়গায় Upload files করে Commit করুন। src ফোল্ডার লাগবে না। Render deploy সফল হলে /api/health-এ v60-testimonial-parser-20260930 দেখাবে। পুরোনো React UI একই থাকবে।
