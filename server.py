@@ -16,11 +16,12 @@ import webbrowser
 from rules import extract as rules_extract
 from address_geo import complete_addresses
 from address_choices import candidates as address_candidates, tree as address_tree
-from groq_bridge import GROQ_FIELDS, extract as groq_extract, eligible_parent_year, supported as groq_supported, day as groq_day
+from groq_bridge import GROQ_FIELDS, extract as groq_extract, eligible_parent_year, supported as groq_supported, day as groq_day, api_error_detail
 from gemini_bridge import extract as gemini_extract
 from ollama_bridge import prompt as ollama_prompt, accepted_fields as ollama_accepted
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from date_utils import normalize_date, date_matches
 from auth_store import signup as signup_user, login as login_user, cookie_for, user_from_cookie, COOKIE, pg_connection
 
 ROOT = Path(__file__).resolve().parent
@@ -43,7 +44,8 @@ def probe_provider_key(provider,key,transport=urlopen):
     try:
         with transport(request,timeout=20) as response: models=json.load(response)
     except HTTPError as error:
-        raise ValueError(('Groq' if provider=='groq' else 'Gemini')+' key যাচাই ব্যর্থ (HTTP '+str(error.code)+')') from None
+        detail = api_error_detail(error) if provider=='groq' else ''
+        raise ValueError(('Groq' if provider=='groq' else 'Gemini')+' key যাচাই ব্যর্থ (HTTP '+str(error.code)+')'+((': '+detail) if detail else '')) from None
     except (URLError,TimeoutError,OSError):
         raise ValueError('API-তে সংযোগ হয়নি; ইন্টারনেট ও key যাচাই করুন') from None
     if provider=='groq':
@@ -82,17 +84,12 @@ def explicit_fallback(raw, result, warnings):
     lines = [line.strip() for line in raw.splitlines() if line.strip()]
     current_role='person'
     for i, line in enumerate(lines):
-        if re.search(r'পিতার\s*তথ্য|পিতার\s*নাম|father(?:\x27s)?\s*name',line,re.I):current_role='father'
-        elif re.search(r'মাতার\s*তথ্য|মাতার\s*নাম|mother(?:\x27s)?\s*name',line,re.I):current_role='mother'
-        match = re.match(r'^\s*(?:জন্ম\s*তারিখ|date\s*of\s*birth|dob)\s*[:：ঃ=\-]?\s*(.*)$', line, re.I)
+        if re.match(r'^(?:পিতা|পিতার|বাবা|বাবার|father)(?=\s|[:ঃ=-]|$)',line,re.I):current_role='father'
+        elif re.match(r'^(?:মাতা|মাতার|মা|মায়ের|মায়ের|mother)(?=\s|[:ঃ=-]|$)',line,re.I):current_role='mother'
+        elif re.match(r'^(?:নিজের|আবেদনকারীর|শিশুর|person|applicant)',line,re.I):current_role='person'
+        match = re.match(r'^\s*(?:জন্ম\s*তারিখ|জন্মতারিখ|date\s*of\s*birth|birth\s*date|dob)\s*[:：ঃ=\-]?\s*(.*)$', line, re.I)
         if match and current_role=='person' and not result['person']['birthDate']:
-            date = re.search(r'([০-৯0-9]{1,2})\s*[-/.]\s*([০-৯0-9]{1,2})\s*[-/.]\s*([০-৯0-9]{4})', match.group(1))
-            if date:
-                day, month, year = [int(x.translate(BN_TO_ASCII)) for x in date.groups()]
-                try:
-                    datetime(year, month, day)
-                    result['person']['birthDate'] = f'{day:02d}/{month:02d}/{year:04d}'
-                except ValueError: warnings.append('জন্মতারিখ বৈধ নয়')
+            result['person']['birthDate'] = normalize_date(match.group(1))
         match = re.match(r'^\s*(?:বাবা\s*[-–]?\s*মায়ের?\s*)?(?:কত\s*তম\s*সন্তান|সন্তান\s*(?:নং|নম্বর|ক্রম|সংখ্যা)?|child\s*(?:order|no|number))\s*[:：ঃ=\-]?\s*([০-৯0-9]+)(?:\s*(?:ম|য়|য়|তম|st|nd|rd|th))?(?=\s|$|[/,;])',line,re.I)
         if match and not result['person']['childOrder']:
             result['person']['childOrder'] = str(int(match.group(1).translate(BN_TO_ASCII)))
@@ -138,18 +135,9 @@ def validate(raw, extracted, use_rule_fallback=True):
     p = extracted.get('person', {}) if isinstance(extracted, dict) else {}
     if not isinstance(p, dict): p = {}
     date = str(p.get('birthDate') or '').strip()
-    if re.fullmatch(r'\d{4}-\d{2}-\d{2}', date):
-        try:
-            datetime.strptime(date, '%Y-%m-%d')
-            result['person']['birthDate'] = datetime.strptime(date, '%Y-%m-%d').strftime('%d/%m/%Y')
-        except ValueError:
-            warnings.append('জন্মতারিখ বৈধ নয়')
-    elif re.fullmatch(r'\d{2}/\d{2}/\d{4}', date):
-        try:
-            datetime.strptime(date, '%d/%m/%Y')
-            result['person']['birthDate'] = date
-        except ValueError: warnings.append('জন্মতারিখ বৈধ নয়')
-    elif date: warnings.append('জন্মতারিখের ফরম্যাট বোঝা যায়নি')
+    if date:
+        result['person']['birthDate'] = normalize_date(date)
+        if not result['person']['birthDate']:warnings.append('জন্মতারিখের ফরম্যাট বোঝা যায়নি')
     gender = str(p.get('gender') or '').strip().upper()
     if gender in ('MALE','FEMALE'):
         explicit = bool(re.search(r'(?:লিঙ্গ|gender|পুরুষ|মহিলা|নারী|ছেলে|মেয়ে|মেয়ে|male|female)', raw, re.I))
@@ -169,7 +157,6 @@ def fill_parent_documents(raw, data):
     """Assign first/second parent BRN, paired with a nearby date, without guessing."""
     lines=[line.strip() for line in raw.splitlines() if line.strip()]
     number_re=re.compile(r'(?<![০-৯0-9])[০-৯0-9]{17}(?![০-৯0-9])')
-    date_re=re.compile(r'(?<![০-৯0-9])[০-৯0-9]{1,2}\s*[-/.]\s*[০-৯0-9]{1,2}\s*[-/.]\s*[০-৯0-9]{4}(?![০-৯0-9])')
     father_re=re.compile(r'পিতা|বাবা|father',re.I)
     mother_re=re.compile(r'মাতা|মায়ের|মায়ের|mother',re.I)
     applicant_re=re.compile(r'আবেদনকারী|শিশু|নিজের\s*তথ্য|applicant',re.I)
@@ -177,12 +164,18 @@ def fill_parent_documents(raw, data):
     current=None
     used=set()
     next_parent=0
+    all_numbers=[(index,m.group()) for index,line in enumerate(lines) for m in number_re.finditer(line)]
+    # Two unlabeled registrations can be assigned in source order only when
+    # neither number is explicitly marked as the applicant's own registration.
+    ordered_parent_pair=(len(all_numbers)==2 and not any(
+        applicant_re.search(lines[index]) or re.search(r'^(?:নিজের|আবেদনকারীর|শিশুর|person)\s*(?:BRN|জন্ম\s*নিবন্ধন)',lines[index],re.I)
+        for index,_ in all_numbers))
     for i,line in enumerate(lines):
         if father_re.search(line):parent_seen=True;current='father'
         elif mother_re.search(line):parent_seen=True;current='mother'
         elif applicant_re.search(line):current=None
         for match in number_re.finditer(line):
-            if not parent_seen or applicant_re.search(line):continue
+            if (not parent_seen and not ordered_parent_pair) or applicant_re.search(line):continue
             role=current if (father_re.search(line) or mother_re.search(line)) else ('father','mother')[min(next_parent,1)]
             if role in used:
                 role=('mother' if role=='father' else 'father') if ('mother' if role=='father' else 'father') not in used else None
@@ -195,9 +188,9 @@ def fill_parent_documents(raw, data):
                 candidate_line=lines[j]
                 if j>i and (number_re.search(candidate_line) or applicant_re.search(candidate_line)
                         or (mother_re.search(candidate_line) if role=='father' else father_re.search(candidate_line))):break
-                dates=list(date_re.finditer(candidate_line))
+                dates=date_matches(candidate_line)
                 if len(dates)==1:
-                    dob=groq_day(dates[0].group())
+                    dob=dates[0][2]
                     if dob:break
             if not data[role]['brn']:data[role]['brn']=brn
             if dob and not data[role]['birthDate']:data[role]['birthDate']=dob
