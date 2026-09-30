@@ -32,10 +32,29 @@ def clean(value):
 
 
 def _source_contains(raw, value, source):
-    if not isinstance(value,str) or not isinstance(source,str): return False
+    """Verify model output against the original text without requiring the
+    same physical line breaks. OCR/WhatsApp text commonly wraps one logical
+    value across multiple lines (for example ``MD TOUHIDUL`` + ``ISLAM``).
+    The check is still source-first: every normalized word must be present in
+    the supplied source/raw text, in order, but whitespace/newline wrapping is
+    not treated as a different value.
+    """
+    if not isinstance(raw,str) or not isinstance(value,str) or not isinstance(source,str):
+        return False
     value=value.strip(); source=source.strip()
-    return bool(value and source and len(value)<=180 and len(source)<=500 and source in raw
-                and clean(value) in clean(source))
+    if not value or not source or len(value)>180 or len(source)>500:
+        return False
+
+    raw_norm=clean(raw)
+    source_norm=clean(source)
+    value_norm=clean(value)
+
+    # Prefer an exact source substring, but accept Gemini's normalized source
+    # when it only removed line breaks/extra whitespace. This is important for
+    # values split over adjacent OCR/WhatsApp lines.
+    source_supported = source in raw or (source_norm and source_norm in raw_norm)
+    value_supported = value_norm in source_norm or value_norm in raw_norm
+    return bool(source_supported and value_supported)
 
 
 
