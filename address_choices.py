@@ -375,7 +375,22 @@ def candidates(raw):
                 prev['input']+='\n'+candidate['input']
                 continue
         merged.append(candidate)
-    return merged
+    # Repeated source lines may create nonadjacent candidates for the same
+    # district. They are one choice, even if the address appeared twice.
+    unique=[]
+    seen={}
+    for candidate in merged:
+        key=str(candidate['districtId'])
+        if key not in seen:
+            seen[key]=candidate
+            unique.append(candidate)
+            continue
+        previous=seen[key]
+        for field,source in candidate['sources'].items():
+            if source.get('source')=='input' and previous['sources'].get(field,{}).get('source')!='input':
+                previous['address'][field]=candidate['address'][field]
+                previous['sources'][field]=source
+    return unique
 
 def tree(district_id):
     matched=next(((div,d) for div,d in DISTRICTS if str(d['id'])==str(district_id)),None)
