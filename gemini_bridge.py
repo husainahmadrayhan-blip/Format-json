@@ -38,6 +38,40 @@ def _source_contains(raw, value, source):
                 and clean(value) in clean(source))
 
 
+
+def clean_field_value(path, value):
+    """Keep only the field value, never the source label/prefix.
+
+    Gemini's `source` is allowed to contain the label, but `value` is what the
+    UI puts into the individual field.  A label such as `Name:` or `Father's
+    name:` must therefore never become part of that value.
+    """
+    if not isinstance(value, str):
+        return ''
+    value = value.strip()
+    role, field = path.split('.', 1)
+    if field in ('nameBn', 'nameEn'):
+        labels = {
+            'person': r"(?:নাম|নাম\s*বাংলা|নাম\s*ইংরেজি|নাম\s*ইংরেজী|name|full\s*name)",
+            'father': r"(?:পিতার\s*নাম|পিতা|বাবার\s*নাম|বাবা|father(?:'s)?\s*name|fathers\s*name|father)",
+            'mother': r"(?:মাতার\s*নাম|মাতা|মায়ের\s*নাম|মায়ের\s*নাম|মা|mother(?:'s)?\s*name|mothers\s*name|mother)",
+        }[role]
+        value = re.sub(r'^\s*' + labels + r'\s*[:：ঃ=\-]+\s*', '', value, flags=re.I)
+    elif field == 'birthDate':
+        value = re.sub(r'^\s*(?:জন্ম\s*তারিখ|জন্মতারিখ|date\s*of\s*birth|birth\s*date|dob)\s*[:：ঃ=\-]+\s*', '', value, flags=re.I)
+    elif field == 'gender':
+        value = re.sub(r'^\s*(?:লিঙ্গ|gender)\s*[:：ঃ=\-]+\s*', '', value, flags=re.I)
+    elif field == 'childOrder':
+        value = re.sub(r'^\s*(?:সন্তান\s*(?:নং|নম্বর|ক্রম|সংখ্যা)?|কত\s*তম\s*সন্তান|child\s*(?:order|no|number))\s*[:：ঃ=\-]+\s*', '', value, flags=re.I)
+    elif field in ('brn','nid','passport'):
+        labels = {
+            'brn': r'(?:জন্ম\s*নিবন্ধন(?:\s*নম্বর)?|নিবন্ধন\s*নম্বর|registration(?:\s*number)?|brn)',
+            'nid': r'(?:জাতীয়\s*পরিচয়(?:\s*পত্র)?(?:\s*নম্বর)?|জাতীয়\s*পরিচয়(?:\s*পত্র)?(?:\s*নম্বর)?|nid)',
+            'passport': r'(?:passport|পাসপোর্ট)(?:\s*(?:number|নম্বর))?',
+        }[field]
+        value = re.sub(r'^\s*' + labels + r'\s*[:：ঃ=\-]+\s*', '', value, flags=re.I)
+    return value.strip()
+
 def source_words_match(raw,path,value,source):
     """Strictly prove Gemini's value came from the original text.
 
@@ -126,7 +160,7 @@ CRITICAL DATA INTEGRITY RULES:
 1. Copy source information exactly. Do NOT correct spelling, improve spelling, translate, transliterate, expand initials, remove words, add words, or rewrite names/IDs.
 2. Never invent or guess a value. If a field is absent, unclear, or cannot be assigned confidently to the correct person, return empty value and empty source.
 3. Every non-empty value MUST be supported by source, and source MUST be an exact verbatim substring copied from the original text.
-4. For names, preserve the exact Bengali/English spelling and word order. A wrapped English name may be combined only from adjacent source lines without changing any characters or words; source should include those original lines as one exact substring when possible.
+4. VALUE MUST CONTAIN ONLY THE VALUE FOR THAT FIELD, NEVER THE LABEL. For example, if the source says `Name:MD AMINUL ISLAM`, value must be `MD AMINUL ISLAM`, while source may be the full exact substring `Name:MD AMINUL ISLAM`. For Bengali/English names, preserve the exact spelling and word order. A wrapped English name may be combined only from adjacent source lines without changing any characters or words. Never put `Name:`, `Father's name:`, `Mothers name:`, `জন্মতারিখ:`, `BRN:` or similar labels inside value.
 5. For dates, normalize only the extracted applicant/parent date to DD/MM/YYYY. Never move a parent's date to the applicant or vice versa.
 6. Gender must be MALE/FEMALE only when explicitly stated or unambiguously labelled in the source. Do not infer gender from a name.
 7. Child order must be extracted only when explicitly stated. Do not default it here.
@@ -170,6 +204,8 @@ def extract(raw,key,transport=urlopen):
         proposal=fields.get(path)
         if not isinstance(proposal,dict): rejected.append(path); continue
         value,source=proposal.get('value',''),proposal.get('source','')
+        if not value: continue
+        value=clean_field_value(path,value)
         if not value: continue
         if source_words_match(raw,path,value,source): accepted[path]=value.strip()
         else: rejected.append(path)

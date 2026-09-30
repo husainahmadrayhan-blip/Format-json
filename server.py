@@ -449,9 +449,12 @@ class Handler(BaseHTTPRequestHandler):
             raw, model, provider = body.get('raw'), body.get('model', ''),body.get('provider', '')
             if not isinstance(raw,str) or not raw.strip() or not isinstance(model,str) or provider not in ('','groq','gemini'):
                 return self.respond(400, {'error':'লেখা দিন'})
-            # WhatsApp exports may prefix individual lines with invisible
-            # direction marks. Remove controls before every parser stage.
-            raw = re.sub(r'[\u200b\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]', '', raw)
+            # Keep the user's pasted text untouched for the UI/review.
+            # Only a private parser copy may remove invisible WhatsApp direction
+            # controls. No labels, lines, spacing, or ordering are rewritten.
+            original_raw = raw
+            parse_raw = re.sub(r'[\u200b\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]', '', raw)
+            raw = parse_raw
             if provider in ('groq','gemini') or model:
                 label = ('Gemini' if provider=='gemini' else 'Groq' if provider=='groq' else 'Ollama')
                 key=body.get('apiKey') or os.environ.get('GEMINI_API_KEY' if provider=='gemini' else 'GROQ_API_KEY','')
