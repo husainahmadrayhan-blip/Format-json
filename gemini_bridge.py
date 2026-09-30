@@ -49,6 +49,9 @@ def clean_field_value(path, value):
     if not isinstance(value, str):
         return ''
     value = value.strip()
+    # Remove only formatting bullets accidentally returned by the model; never
+    # alter the actual source words, spelling, or punctuation inside the value.
+    value = re.sub(r'^(?:[*•·▪◦‣]+|\(?\s*\d+[.)])\s*', '', value)
     role, field = path.split('.', 1)
     if field in ('nameBn', 'nameEn'):
         labels = {
@@ -161,10 +164,14 @@ IMPORTANT MIXED/INLINE FORMAT RULES:
 - Father/mother may use short labels such as `পিতা`, `বাবা`, `পিতা-`, `মাতা`, `মা`, `মাতার নাম`, `Father`, `Father's name`, `Mother`, etc. Do not require one exact label spelling.
 - Multiple fields may be accidentally joined together because a newline is missing. Example: `ইউনিয়ন -৪ নং রামপাশাজন্ম তারিখ -30/12/2009`. Recognize `জন্ম তারিখ` beginning inside the same line and assign `30/12/2009` to the applicant DOB when the surrounding context identifies it as the applicant record.
 - Separators may be `-`, `–`, `—`, `:`, `ঃ`, `=`, parentheses, brackets, commas, tabs, spaces, or no separator at all. Do not reject a field because its separator is unusual.
-- Do not require every field to start on a new line. A single line can contain several fields.
-- OCR may merge words or remove spaces. Use surrounding semantic context to identify field boundaries, but NEVER invent missing characters.
-- If a Bengali name is followed immediately by an English name in parentheses, return them as separate `nameBn` and `nameEn` values. Do not include parentheses or the other language half in either value.
-Use semantic understanding to identify which person is the applicant/child, which is father and which is mother. Do not depend on one fixed layout or a list of hard-coded templates.
+- Do not require every field to start on a new line. A single line can contain several fields, and several lines can belong to one field.
+- Treat bullet/list markers such as `*`, `•`, `-`, numbered prefixes, copied WhatsApp bullets, and blank lines as formatting noise, not as part of a person's name/value. They do NOT mean the text uses a special template.
+- A logical value may be wrapped across multiple consecutive source lines. Example: `MD TOUHIDUL` on one line followed by `ISLAM` on the next line is one English name: `MD TOUHIDUL ISLAM`. Preserve the words exactly; only the line break/whitespace is formatting. The same applies to Bengali/English names and OCR line wrapping.
+- When labels are missing, use the ENTIRE record and semantic/positional relationships to identify fields. Do not reject an unlabeled block merely because no label exists. For example, if a record naturally contains an applicant's Bengali name, its English name (possibly wrapped across lines), then a date, followed by a father Bengali/English name pair and a mother Bengali/English name pair, assign those values according to the record's semantic grouping. This is a general document-understanding rule, not a fixed requirement for that exact order; if another order is present, use the evidence in that order instead.
+- A standalone 8/10/17-digit-looking value is NOT automatically a date/ID. Assign it only when the surrounding record supports that field.
+- If a Bengali name is followed immediately by an English name in parentheses, slash, comma, adjacent text, or the next wrapped line, return them as separate `nameBn` and `nameEn` values. Do not include parentheses, bullets, commas, or the other language half in either value.
+- If the text is presented as a vertical list with no labels, first reconstruct the logical record mentally from proximity, language, ordering, punctuation, and the presence of dates/identifiers; then extract the fields. Do not demand labels that are not present.
+Use semantic understanding of the WHOLE document to identify which person is the applicant/child, which is father and which is mother. Never rely on one fixed template, one exact line order, or one separator pattern. The same extraction must work when labels are present, partially present, absent, reordered, wrapped, merged, bulletized, or OCR-damaged.
 
 CRITICAL DATA INTEGRITY RULES:
 1. Copy source information exactly. Do NOT correct spelling, improve spelling, translate, transliterate, expand initials, remove words, add words, or rewrite names/IDs.
