@@ -11,17 +11,31 @@ ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions'
 MODEL = 'openai/gpt-oss-20b'
 
 def api_error_detail(error):
-    """Expose Groq's error reason without echoing credentials or HTML."""
+    """Expose the provider's safe error reason, never credentials or HTML."""
     try:
         body = error.read(8192)
-        item = json.loads(body).get('error', {})
-        if not isinstance(item, dict):
-            return ''
-        code = str(item.get('code') or '')
-        message = str(item.get('message') or '')
-        detail = ' — '.join(part for part in (code, message) if part)
-        detail = re.sub(r'gsk_[A-Za-z0-9_-]+', '[API key hidden]', detail)
-        return re.sub(r'[\x00-\x1f\x7f]+', ' ', detail).strip()[:400]
+        try:
+            payload = json.loads(body)
+        except (ValueError, UnicodeDecodeError):
+            payload = None
+        item = payload.get('error', payload) if isinstance(payload, dict) else None
+        if isinstance(item, dict):
+            parts = [item.get('code'), item.get('type'), item.get('message')]
+            detail = ' — '.join(str(part) for part in parts if isinstance(part, (str, int)) and part)
+        elif isinstance(item, str):
+            detail = item
+        else:
+            # A proxy/WAF can return an HTML page instead of Groq JSON.
+            # Never display its body, which may contain injected markup.
+            content_type = error.headers.get('Content-Type', '') if error.headers else ''
+            detail = 'JSON error পাওয়া যায়নি; upstream '+('HTML' if 'html' in content_type.lower() else 'non-JSON')+' response'
+        detail = re.sub(r'gsk_[A-Za-z0-9_-]+', '[API key hidden]', detail, flags=re.I)
+        detail = re.sub(r'(?:Bearer\s+)[A-Za-z0-9._-]+', 'Bearer [hidden]', detail, flags=re.I)
+        detail = re.sub(r'[\x00-\x1f\x7f<>]+', ' ', detail).strip()[:400]
+        request_id = error.headers.get('x-request-id', '') if error.headers else ''
+        if re.fullmatch(r'[A-Za-z0-9_-]{5,100}', request_id):
+            detail += ' (request ID: '+request_id+')'
+        return detail
     except (ValueError, TypeError, OSError):
         return ''
 GROQ_CORE_FIELDS = frozenset(('person.nameBn','person.nameEn','person.birthDate','person.gender',
