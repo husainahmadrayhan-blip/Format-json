@@ -1,1 +1,1 @@
-v60 testimonial parser। ZIP খুলে সব ফাইল GitHub repository-র মূল জায়গায় Upload files করে Commit করুন। src ফোল্ডার লাগবে না। Render deploy সফল হলে /api/health-এ v60-testimonial-parser-20260930 দেখাবে। পুরোনো React UI একই থাকবে।
+v62: testimonial-generator-এর মূল JavaScript extraction সোর্স testimonial_parser_source.js সরাসরি চালানো হয়। BDRIS role যাচাই এবং পিতা-মাতার BRN+জন্মতারিখের নিয়ম বজায় আছে। ZIP খুলে সব ফাইল GitHub repository-এর root-এ upload/commit করুন। Render deploy শেষে /api/health-এ v62-original-testimonial-parser-20260930 দেখুন।

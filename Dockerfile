@@ -9,9 +9,12 @@ RUN npm run build
 FROM python:3.12-slim
 ENV DEPLOY_MODE=1 PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends libstdc++6 && rm -rf /var/lib/apt/lists/*
+COPY --from=frontend /usr/local/bin/node /usr/local/bin/node
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY --from=frontend /app/dist/ ./dist/
 COPY *.py BDRIS_MASTER_GEO.json ./
+COPY testimonial_parser_source.js testimonial_bridge.cjs ./
 USER nobody
 CMD ["python", "-u", "server.py"]

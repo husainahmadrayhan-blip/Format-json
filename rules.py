@@ -10,11 +10,11 @@ DIGITS = str.maketrans('০১২৩৪৫৬৭৮৯', '0123456789')
 DATE_RE = re.compile(r'(?<!\d)([০-৯0-9]{1,2})\s*[-/.]\s*([০-৯0-9]{1,2})\s*[-/.]\s*([০-৯0-9]{4})(?!\d)')
 MISSING_SEPARATOR_DATE = re.compile(r'(?<!\d)([০-৯0-9]{1,2})\s*[/.-]\s*([০-৯0-9]{2})([০-৯0-9]{4})(?!\d)')
 MONTHS = {'জানুয়ারি':1,'জানুয়ারি':1,'ফেব্রুয়ারি':2,'ফেব্রুয়ারি':2,'মার্চ':3,'এপ্রিল':4,'মে':5,'জুন':6,'জুলাই':7,'আগস্ট':8,'সেপ্টেম্বর':9,'অক্টোবর':10,'নভেম্বর':11,'ডিসেম্বর':12,'january':1,'jan':1,'february':2,'feb':2,'march':3,'mar':3,'april':4,'apr':4,'apri':4,'may':5,'june':6,'jun':6,'july':7,'jul':7,'august':8,'aug':8,'september':9,'sep':9,'october':10,'oct':10,'november':11,'nov':11,'december':12,'dec':12}
-PARENT_MARK = re.compile(r'পিতার\s*তথ্য|পিতার\s*নাম|পিতা\s*[:ঃ]|বাবার\s*নাম|father(?:[\x27’]s)?\s*(?:information|name)?\s*[:：ঃ-]|মাতার\s*তথ্য|মাতার\s*নাম|মাতা\s*[:ঃ]|মায়ের\s*নাম|mother(?:[\x27’]s)?\s*(?:information|name)?\s*[:：ঃ-]',re.I)
+PARENT_MARK = re.compile(r'পিতার\s*তথ্য|পিতার\s*নাম|পিতাম\s*নাম|পিতা\s*[:ঃ]|বাবার\s*নাম|father(?:[\x27’]s)?\s*(?:information|name)?\s*[:：ঃ-]|মাতার\s*তথ্য|মাতার\s*নাম|মাতা\s*[:ঃ]|মায়ের\s*নাম|mother(?:[\x27’]s)?\s*(?:information|name)?\s*[:：ঃ-]',re.I)
 ADDRESS_MARK = re.compile(r'ঠিকানা|জন্ম\s*স্থান|জন্মস্থান|গ্রাম|ডাকঘর|পোস্ট|post\s*office|village|division|district|উপজেলা|ইউনিয়ন|ইউনিয়ন|ওয়ার্ড|ওয়াড|বিভাগ|জেলা|birth\s*place|address',re.I)
 META_MARK = re.compile(r'NID|BRN|আইডি|কার্ড|নম্বর|নাম্বার|mobile|মোবাইল|জাতীয়তা|জাতীয়তা|nationality|সন্তান|gender|লিঙ্গ|date|জন্ম\s*তারিখ',re.I)
 NAME_LABEL = re.compile(r'\bname\b|নাম|ইংরেজি|ইংরেজী|ইংরেজ|বাংলা|বাংলায়|বাংলায়|english',re.I)
-FATHER = re.compile(r'পিতা|বাবা|father',re.I)
+FATHER = re.compile(r'পিতা|পিতাম|বাবা|father',re.I)
 MOTHER = re.compile(r'মাতা|মায়ের|মায়ের|(?<![\u0980-\u09ff])মা(?![\u0980-\u09ff])|mother',re.I)
 SEPARATORS = re.compile(r'^\s*[:：ঃ=\-–—.\s]+')
 DECORATION = re.compile(r'^[^\w\u0980-\u09ff]+', re.UNICODE)
@@ -43,7 +43,7 @@ def label_value(line):
     compact=re.match(r'^(নাম\s*\((?:বাংলায়|বাংলায়|বাংলা|ইংরেজি|ইংরেজী|English|Bangla)\))\s*[:：ঃ=-]?\s*(.+)$',line,re.I)
     if compact:return clean(compact.group(1)),clean(compact.group(2))
     # Explicit short parent labels, including 'Father:-', 'পিতা:' and 'মাতা-'.
-    parent=re.match(r"^((?:পিতার|মাতার|বাবার)(?:\s*নাম)?|(?:পিতা|মাতা|বাবা|মা|father|mother)(?:s)?)\s*[:：ঃ,=\-–—]+\s*(.*)$",line,re.I)
+    parent=re.match(r"^((?:পিতার|পিতাম|মাতার|বাবার)(?:\s*নাম)?|(?:পিতা|মাতা|বাবা|মা|father|mother)(?:s)?)\s*[:：ঃ,=\-–—]+\s*(.*)$",line,re.I)
     if parent:return clean(parent.group(1)),clean(parent.group(2))
     # Split at label punctuation, including decorated '--:' labels.
     match = re.match(r'^(.{1,85}?)(?:\s*[:：ঃ=,]+|\s*[-–—]+\s*[:：ঃ=]*)(.*)$', line)
@@ -84,7 +84,7 @@ def strong_name_fields(raw):
     lines=[DECORATION.sub('', clean(line)).strip() for line in raw.splitlines()]
     lines=[line for line in lines if line]
     for i,line in enumerate(lines):
-        if re.match(r'^(?:পিতার\s*তথ্য|পিতা(?:র)?\s*নাম|পিতা\s*[:ঃ\-]|বাবার\s*নাম|father(?:[\x27’]s)?\s*(?:information|name))',line,re.I):role='father'
+        if re.match(r'^(?:পিতার\s*তথ্য|পিতা(?:র|ম)?\s*নাম|পিতা\s*[:ঃ\-]|বাবার\s*নাম|father(?:[\x27’]s)?\s*(?:information|name))',line,re.I):role='father'
         elif re.match(r'^(?:মাতার\s*তথ্য|মাতা(?:র)?\s*নাম|মাতা\s*[:ঃ\-]|মায়ের\s*নাম|মায়ের\s*নাম|mother(?:[\x27’]s)?\s*(?:information|name))',line,re.I):role='mother'
         elif re.match(r'^(?:নতুন\s*নিবন্ধনের\s*তথ্য|ব্যক্তিগত\s*তথ্য|নিজের\s*তথ্য|applicant)',line,re.I):role='person'
         label,payload=label_value(line)
@@ -158,7 +158,7 @@ def extract(raw):
         if re.search(r'মাতার\s*তথ্য|mother(?:[\x27’]s)?\s*information',line,re.I):role='mother';continue
         if re.search(r'নতুন\s*নিবন্ধনের\s*তথ্য|ব্যক্তিগত\s*তথ্য|নিজের\s*তথ্য|personal\s*information',line,re.I):role='person';continue
         label,value=label_value(line)
-        if re.match(r'^(?:পিতা|পিতার|বাবা|বাবার|father)(?=\s|[:ঃ=-]|$)',line,re.I):role='father'
+        if re.match(r'^(?:পিতা|পিতার|পিতাম|বাবা|বাবার|father)(?=\s|[:ঃ=-]|$)',line,re.I):role='father'
         elif re.match(r'^(?:মাতা|মাতার|মা|মায়ের|মায়ের|mother)(?=\s|[:ঃ=-]|$)',line,re.I):role='mother'
         active='father' if FATHER.search(label) else 'mother' if MOTHER.search(label) else role
         # Parent name on one line changes context, preventing a following English line from being assigned to person.
@@ -211,7 +211,7 @@ def extract(raw):
                 for j in range(max(0,i-3),i))
         if standalone_date and role=='person' and i<8 and (names['person']['bn'] or names['person']['en']):
             applicant_name_nearby=True
-        if (re.search(r'জন্ম\s*তারিখ|(?:^|\s)জন্ম\s*[:ঃ]|date\s*of\s*birth|\bdob\b|\bbirth\s*[:ঃ]|^(?:বয়স|বয়স|age)\s*[:ঃ：-]\s*[০-৯0-9]{1,2}\s*[-/.]',line,re.I)
+        if (re.search(r'জন্ম\s*(?:তারিখ|সাল)\s*[:ঃ：=-]|(?:^|\s)জন্ম\s*[:ঃ]|date\s*of\s*birth|\bdob\b|\bbirth\s*[:ঃ]|^(?:বয়স|বয়স|age)\s*[:ঃ：-]\s*[০-৯0-9]{1,2}\s*[-/.]',line,re.I)
                 or (standalone_date and role=='person' and applicant_name_nearby)):
             if active=='person' and not FATHER.search(line) and not MOTHER.search(line):
                 date_line=line
@@ -268,6 +268,6 @@ def extract(raw):
             if result[r]['name'+lang.title()]:continue
             expected=(r=='person' or bool(re.search(r'পিতা|বাবা|father' if r=='father' else r'মাতা|mother',raw,re.I)))
             if expected:missing.append(r+'.name'+lang.title())
-    if not result['person']['birthDate'] and re.search(r'জন্ম\s*তারিখ|জন্ম\s*[:ঃ]|date\s*of\s*birth|\bdob\b|\bbirth\s*[:ঃ]',raw,re.I):missing.append('person.birthDate')
+    if not result['person']['birthDate'] and re.search(r'জন্ম\s*(?:তারিখ|সাল)|জন্ম\s*[:ঃ]|date\s*of\s*birth|\bdob\b|\bbirth\s*[:ঃ]',raw,re.I):missing.append('person.birthDate')
     if not result['person']['gender'] and re.search(r'লিঙ্গ|gender|মহিলা|পুরুষ|\bfemale\b|\bmale\b',raw,re.I):missing.append('person.gender')
     return result,missing
