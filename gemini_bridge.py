@@ -153,31 +153,24 @@ def payload(raw):
     }
     instructions='''You are a strict information-extraction engine.
 Read the ENTIRE original text and produce the complete JSON extraction for every requested non-address field.
-The text may contain up to extremely many different layouts: Bengali, English, mixed Bengali-English, labels before or after values, one-line records, multiline records, WhatsApp messages, OCR text, tables flattened into lines, reordered sections, punctuation differences, and unlabeled blocks.
-Use semantic understanding to identify which person is the applicant/child, which is father and which is mother. Do not depend on one fixed layout.
+The text may contain ANY layout, including Bengali, English, mixed Bengali-English, OCR/WhatsApp text, copied certificates, tables flattened into lines, reordered sections, labels before or after values, missing spaces, missing newlines, extra spaces, punctuation differences, and unlabeled blocks. Treat the input as a noisy human document and segment it semantically rather than expecting a fixed template.
 
-MULTI-FORMAT / BLOCK RECONSTRUCTION RULES:
-A field label and its value are often NOT on the same line. Treat the original text as a sequence of semantic blocks, not as a fixed line-by-line form. First identify section/field boundaries, then collect the value lines belonging to that field until the next clear field/section boundary. Examples include `নাম:-` followed by Bengali name on the next line and English name on the following line; `Date of birth:` followed by the date on the next line; `পিতা:` followed by two name lines; `মাতা:` followed by two name lines. The same information may appear with no label, different punctuation, extra blank lines, bullets, emojis, OCR spacing, or labels and values on one line.
-
-For names specifically:
-- A Bengali name line followed by an English/Latin name line in the same semantic block is one person's nameBn/nameEn pair.
-- If the label is on its own line, continue reading the immediately following relevant non-empty lines until the next clear field label/section.
-- Do not treat `:`/`ঃ`/`-`/`=` or blank lines as mandatory boundaries.
-- Do not merge text from the next field into the current field.
-- Preserve each value exactly as written; only assign the Bengali line to nameBn and the Latin line to nameEn.
-
-For dates and identifiers:
-- A label-only line can own the next relevant date/identifier line.
-- A 17-digit number can be an unlabeled BRN. Determine ownership from the surrounding semantic block and person context, not from the presence of a BRN label.
-- Never require a fixed number of lines, fixed ordering, or fixed punctuation.
-
-Before returning JSON, mentally reconstruct the complete applicant/father/mother blocks from the entire source and then populate every field that is actually supported by those blocks.
+IMPORTANT MIXED/INLINE FORMAT RULES:
+- A label and its value may be on the SAME line. Example: `নাম-ফররুখ আহমদ( Farruk Ahmed)`. Extract Bengali name=`ফররুখ আহমদ` and English name=`Farruk Ahmed`.
+- Bengali and English versions of the same name may be adjacent, with parentheses, brackets, slash, dash, colon, or whitespace separating them. Parenthesized English text immediately following a Bengali name normally belongs to that same name.
+- Father/mother may use short labels such as `পিতা`, `বাবা`, `পিতা-`, `মাতা`, `মা`, `মাতার নাম`, `Father`, `Father's name`, `Mother`, etc. Do not require one exact label spelling.
+- Multiple fields may be accidentally joined together because a newline is missing. Example: `ইউনিয়ন -৪ নং রামপাশাজন্ম তারিখ -30/12/2009`. Recognize `জন্ম তারিখ` beginning inside the same line and assign `30/12/2009` to the applicant DOB when the surrounding context identifies it as the applicant record.
+- Separators may be `-`, `–`, `—`, `:`, `ঃ`, `=`, parentheses, brackets, commas, tabs, spaces, or no separator at all. Do not reject a field because its separator is unusual.
+- Do not require every field to start on a new line. A single line can contain several fields.
+- OCR may merge words or remove spaces. Use surrounding semantic context to identify field boundaries, but NEVER invent missing characters.
+- If a Bengali name is followed immediately by an English name in parentheses, return them as separate `nameBn` and `nameEn` values. Do not include parentheses or the other language half in either value.
+Use semantic understanding to identify which person is the applicant/child, which is father and which is mother. Do not depend on one fixed layout or a list of hard-coded templates.
 
 CRITICAL DATA INTEGRITY RULES:
 1. Copy source information exactly. Do NOT correct spelling, improve spelling, translate, transliterate, expand initials, remove words, add words, or rewrite names/IDs.
 2. Never invent or guess a value. If a field is absent, unclear, or cannot be assigned confidently to the correct person, return empty value and empty source.
 3. Every non-empty value MUST be supported by source, and source MUST be an exact verbatim substring copied from the original text.
-4. VALUE MUST CONTAIN ONLY THE VALUE FOR THAT FIELD, NEVER THE LABEL. For example, if the source says `Name:MD AMINUL ISLAM`, value must be `MD AMINUL ISLAM`, while source may be the full exact substring `Name:MD AMINUL ISLAM`. For Bengali/English names, preserve the exact spelling and word order. A wrapped English name may be combined only from adjacent source lines without changing any characters or words. Never put `Name:`, `Father's name:`, `Mothers name:`, `জন্মতারিখ:`, `BRN:` or similar labels inside value.
+4. VALUE MUST CONTAIN ONLY THE VALUE FOR THAT FIELD, NEVER THE LABEL. For example, if the source says `Name:MD AMINUL ISLAM`, value must be `MD AMINUL ISLAM`, while source may be the full exact substring `Name:MD AMINUL ISLAM`. For Bengali/English names, preserve the exact spelling and word order. If the source says `নাম-ফররুখ আহমদ( Farruk Ahmed)`, return nameBn=`ফররুখ আহমদ` and nameEn=`Farruk Ahmed`; do not include the parentheses or the other language half. A wrapped English name may be combined only from adjacent source lines without changing any characters or words. Never put `Name:`, `Father's name:`, `Mothers name:`, `জন্মতারিখ:`, `BRN:` or similar labels inside value.
 5. For dates, normalize only the extracted applicant/parent date to DD/MM/YYYY. Never move a parent's date to the applicant or vice versa.
 6. Gender must be MALE/FEMALE only when explicitly stated or unambiguously labelled in the source. Do not infer gender from a name.
 7. Child order must be extracted only when explicitly stated. Do not default it here.
