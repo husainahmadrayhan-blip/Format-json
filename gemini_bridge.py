@@ -156,6 +156,23 @@ Read the ENTIRE original text and produce the complete JSON extraction for every
 The text may contain up to extremely many different layouts: Bengali, English, mixed Bengali-English, labels before or after values, one-line records, multiline records, WhatsApp messages, OCR text, tables flattened into lines, reordered sections, punctuation differences, and unlabeled blocks.
 Use semantic understanding to identify which person is the applicant/child, which is father and which is mother. Do not depend on one fixed layout.
 
+MULTI-FORMAT / BLOCK RECONSTRUCTION RULES:
+A field label and its value are often NOT on the same line. Treat the original text as a sequence of semantic blocks, not as a fixed line-by-line form. First identify section/field boundaries, then collect the value lines belonging to that field until the next clear field/section boundary. Examples include `নাম:-` followed by Bengali name on the next line and English name on the following line; `Date of birth:` followed by the date on the next line; `পিতা:` followed by two name lines; `মাতা:` followed by two name lines. The same information may appear with no label, different punctuation, extra blank lines, bullets, emojis, OCR spacing, or labels and values on one line.
+
+For names specifically:
+- A Bengali name line followed by an English/Latin name line in the same semantic block is one person's nameBn/nameEn pair.
+- If the label is on its own line, continue reading the immediately following relevant non-empty lines until the next clear field label/section.
+- Do not treat `:`/`ঃ`/`-`/`=` or blank lines as mandatory boundaries.
+- Do not merge text from the next field into the current field.
+- Preserve each value exactly as written; only assign the Bengali line to nameBn and the Latin line to nameEn.
+
+For dates and identifiers:
+- A label-only line can own the next relevant date/identifier line.
+- A 17-digit number can be an unlabeled BRN. Determine ownership from the surrounding semantic block and person context, not from the presence of a BRN label.
+- Never require a fixed number of lines, fixed ordering, or fixed punctuation.
+
+Before returning JSON, mentally reconstruct the complete applicant/father/mother blocks from the entire source and then populate every field that is actually supported by those blocks.
+
 CRITICAL DATA INTEGRITY RULES:
 1. Copy source information exactly. Do NOT correct spelling, improve spelling, translate, transliterate, expand initials, remove words, add words, or rewrite names/IDs.
 2. Never invent or guess a value. If a field is absent, unclear, or cannot be assigned confidently to the correct person, return empty value and empty source.
